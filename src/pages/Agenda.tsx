@@ -1,72 +1,68 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-
-type FU = {
-  id: string; customer_id: string; operator_id: string;
-  scheduled_at: string; note: string | null; done: boolean;
-};
-
+import React from "react";
 export default function Agenda() {
-  const [rows, setRows] = useState<FU[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+return (
+<div style={{ padding: 24 }}>
+<h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 16 }}>Agenda</h1>
+<p>Em breve: compromissos e tarefas.</p>
+</div>
+);
+}
 
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      // pega e-mail do usuário e resolve operator_id
-      const { data: user } = await supabase.auth.getUser();
-      const email = user?.user?.email;
-      const { data: op, error: e1 } = await supabase.from("operators").select("id").eq("email", email).maybeSingle();
-      if (e1) throw e1;
-      const operator_id = op?.id;
-      if (!operator_id) { setRows([]); setLoading(false); return; }
 
-      const { data, error } = await supabase
-        .from("follow_ups")
-        .select("*")
-        .eq("operator_id", operator_id)
-        .order("scheduled_at", { ascending: true });
-      if (error) throw error;
-      setRows(data || []);
-    } catch (e: any) {
-      setErr(e.message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
+// ===============================
+// src/App.tsx (navbar + rotas)
+// ===============================
+import React from "react";
+import { Link, NavLink, Outlet, Route, BrowserRouter, Routes } from "react-router-dom";
+import EsteiraOperacional from "./pages/EsteiraOperacional";
+import Clientes from "./pages/Clientes";
+import Agenda from "./pages/Agenda";
 
-  useEffect(() => { load(); }, []);
 
-  async function markDone(id: string, done: boolean) {
-    await supabase.from("follow_ups").update({ done }).eq("id", id);
-    load();
-  }
+export default function App() {
+return (
+<BrowserRouter>
+<div>
+<Topbar />
+<Routes>
+<Route path="/" element={<EsteiraOperacional />} />
+<Route path="/clientes" element={<Clientes />} />
+<Route path="/agenda" element={<Agenda />} />
+</Routes>
+</div>
+</BrowserRouter>
+);
+}
 
-  if (loading) return <div className="p-4">Carregando agenda…</div>;
-  if (err) return <div className="p-4 text-red-600">Erro: {err}</div>;
-  if (!rows.length) return <div className="p-4">Sem lembretes.</div>;
 
-  return (
-    <div className="p-4 space-y-3">
-      <h1 className="text-xl font-semibold">Minha Agenda</h1>
-      <ul className="space-y-2">
-        {rows.map(r => (
-          <li key={r.id} className="border rounded-lg p-3 bg-white flex items-center justify-between">
-            <div>
-              <div className="font-medium">{new Date(r.scheduled_at).toLocaleString()}</div>
-              {r.note && <div className="text-sm text-gray-600">{r.note}</div>}
-            </div>
-            <button
-              className={`px-3 py-1 rounded ${r.done ? "bg-gray-200" : "bg-black text-white"}`}
-              onClick={() => markDone(r.id, !r.done)}
-            >
-              {r.done ? "Reabrir" : "Concluir"}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+function Topbar() {
+const linkStyle = ({ isActive }: { isActive: boolean }) => ({
+padding: "6px 12px",
+borderRadius: 10,
+fontWeight: 700,
+background: isActive ? "#111827" : "#eef0f4",
+color: isActive ? "#fff" : "#111827",
+textDecoration: "none",
+});
+
+
+return (
+<div style={{ display: "flex", alignItems: "center", gap: 12, padding: 16, borderBottom: "1px solid #f0f2f6" }}>
+<Link to="/" style={{ fontWeight: 900, fontSize: 18, textDecoration: "none", color: "#111827", marginRight: 8 }}>
+ERP Bruna
+</Link>
+<NavLink to="/" style={linkStyle} end>
+Esteira Operacional
+</NavLink>
+<NavLink to="/clientes" style={linkStyle}>
+Clientes
+</NavLink>
+<NavLink to="/agenda" style={linkStyle}>
+Agenda
+</NavLink>
+<div style={{ marginLeft: "auto" }}>
+<button style={{ ...btnSecondary, background: "#f8fafc", color: "#2563eb" }}>Sair</button>
+</div>
+</div>
+);
 }
