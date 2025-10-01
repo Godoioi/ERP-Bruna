@@ -1,3 +1,4 @@
+cat > src/components/Kanban.tsx <<'TSX'
 import React from "react";
 import { DndContext, DragEndEvent, useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
