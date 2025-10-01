@@ -1,158 +1,148 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import React, { useEffect, useState } from "react";
+import { supabase } from "../client";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import Modal from "react-modal";
 
-type KanbanRow = {
-  case_id: string;
-  current_stage: "CONTRATO_PENDENTE" | "DESBLOQUEIO" | "LIBERACAO_VALOR" | "PAGAMENTO" | "CONCLUIDO" | "CANCELADO";
-  status: string;
-  operator_id: string | null;
-  operador: string | null;
-  customer_id: string;
+Modal.setAppElement("#root");
+
+type Case = {
+  id: string;
   cliente: string;
-  cpf: string | null;
-  valor_contratado: number | null;
-  data_venda: string | null;
-  created_at: string;
-  etapa_started_at: string | null;
-  etapa_sla_due_at: string | null;
-  sla_days: number | null;
+  valor_contratado: number;
+  current_stage: string;
+  obs: string | null;
 };
 
-const STAGES: KanbanRow["current_stage"][] = [
-  "CONTRATO_PENDENTE",
-  "DESBLOQUEIO",
-  "LIBERACAO_VALOR",
-  "PAGAMENTO",
-  "CONCLUIDO",
-  "CANCELADO",
-];
+type Stage = "CONTRATO_PENDENTE" | "DESBLOQUEIO" | "LIBERACAO_VALOR" | "PAGAMENTO" | "CONCLUIDO" | "CANCELADO";
 
-function nextStage(s: KanbanRow["current_stage"]): KanbanRow["current_stage"] {
-  if (s === "CONTRATO_PENDENTE") return "DESBLOQUEIO";
-  if (s === "DESBLOQUEIO") return "LIBERACAO_VALOR";
-  if (s === "LIBERACAO_VALOR") return "PAGAMENTO";
-  if (s === "PAGAMENTO") return "CONCLUIDO";
-  return s; // CONCLUIDO/CANCELADO não avança
-}
+const stageLabels: Record<Stage, string> = {
+  CONTRATO_PENDENTE: "Contrato Pendente",
+  DESBLOQUEIO: "Desbloqueio",
+  LIBERACAO_VALOR: "Liberação Valor",
+  PAGAMENTO: "Pagamento",
+  CONCLUIDO: "Concluído",
+  CANCELADO: "Cancelado",
+};
+
+const stageColors: Record<Stage, string> = {
+  CONTRATO_PENDENTE: "bg-yellow-200",
+  DESBLOQUEIO: "bg-blue-200",
+  LIBERACAO_VALOR: "bg-green-200",
+  PAGAMENTO: "bg-purple-200",
+  CONCLUIDO: "bg-green-400",
+  CANCELADO: "bg-red-300",
+};
 
 export default function Kanban() {
-  const [rows, setRows] = useState<KanbanRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const { data, error } = await supabase
-        .from("v_kanban")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(500);
-      if (error) throw error;
-      setRows((data as KanbanRow[]) || []);
-    } catch (e: any) {
-      setErr(e.message || String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const [cases, setCases] = useState<Case[]>([]);
+  const [selectedCase, setSelectedCase] = useState<Case | null>(null);
 
   useEffect(() => {
-    load();
+    fetchCases();
   }, []);
 
-  async function advance(c: KanbanRow) {
-    const nxt = nextStage(c.current_stage);
-    if (nxt === c.current_stage) return;
-    const { error } = await supabase.rpc("advance_case_stage", {
-      p_case_id: c.case_id,
-      p_next_stage: nxt,
-      p_actor: c.operator_id, // quem move: operador atual (ou null)
-    });
-    if (error) {
-      alert(error.message);
-    } else {
-      load();
+  async function fetchCases() {
+    const { data, error } = await supabase
+      .from("v_kanban")
+      .select("case_id, cliente, valor_contratado, current_stage, obs");
+    if (error) console.error(error);
+    else
+      setCases(
+        data.map((c: any) => ({
+          id: c.case_id,
+          cliente: c.cliente,
+          valor_contratado: c.valor_contratado,
+          current_stage: c.current_stage,
+          obs: c.obs,
+        }))
+      );
+  }
+
+  async function updateCaseStage(id: string, newStage: Stage) {
+    const { error } = await supabase
+      .from("cases")
+      .update({ current_stage: newStage, status: newStage })
+      .eq("id", id);
+    if (error) console.error(error);
+    else fetchCases();
+  }
+
+  function onDragEnd(result: any) {
+    if (!result.destination) return;
+    const { source, destination, draggableId } = result;
+    if (source.droppableId !== destination.droppableId) {
+      updateCaseStage(draggableId, destination.droppableId as Stage);
     }
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Esteira Operacional</h1>
-        <button
-          className="px-3 py-1.5 rounded-lg border"
-          onClick={load}
+    <div className="p-4">
+      <h1 className="text-2xl font-bold mb-6">Esteira Operacional</h1>
+      <DragDropContext onDragEnd={onDragEnd}>
+        <div className="grid grid-cols-6 gap-4">
+          {Object.keys(stageLabels).map((stageKey) => (
+            <Droppable droppableId={stageKey} key={stageKey}>
+              {(provided) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className="bg-gray-100 rounded p-2 min-h-[300px]"
+                >
+                  <h2 className="font-semibold text-sm mb-2">
+                    {stageLabels[stageKey as Stage]}
+                  </h2>
+                  {cases
+                    .filter((c) => c.current_stage === stageKey)
+                    .map((c, index) => (
+                      <Draggable draggableId={c.id} index={index} key={c.id}>
+                        {(provided) => (
+                          <div
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            ref={provided.innerRef}
+                            className={`p-2 mb-2 rounded cursor-pointer ${stageColors[stageKey as Stage]}`}
+                            onClick={() => setSelectedCase(c)}
+                          >
+                            <p className="font-bold">{c.cliente}</p>
+                            <p className="text-xs">R$ {c.valor_contratado}</p>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          ))}
+        </div>
+      </DragDropContext>
+
+      {/* Modal de detalhes */}
+      {selectedCase && (
+        <Modal
+          isOpen={true}
+          onRequestClose={() => setSelectedCase(null)}
+          contentLabel="Detalhes do Cliente"
+          className="bg-white p-4 rounded shadow-lg max-w-lg mx-auto mt-20"
         >
-          Atualizar
-        </button>
-      </div>
+          <h2 className="text-xl font-bold mb-2">{selectedCase.cliente}</h2>
+          <p>Valor contratado: R$ {selectedCase.valor_contratado}</p>
+          <p>Observações: {selectedCase.obs || "Nenhuma"}</p>
 
-      {err && <div className="text-red-600">Erro: {err}</div>}
-      {loading && <div>Carregando cartões…</div>}
-      {!loading && !rows.length && !err && <div>Sem cards no momento.</div>}
+          <h3 className="mt-4 font-semibold">Documentos</h3>
+          <ul>
+            {/* Aqui listamos os documentos do cliente */}
+            <li>📄 Exemplo de documento anexado</li>
+          </ul>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {STAGES.map((stage) => {
-          const cards = rows.filter(r => r.current_stage === stage);
-          return (
-            <div key={stage} className="bg-white border rounded-xl p-3">
-              <div className="font-semibold mb-2">
-                {labelStage(stage)} <span className="text-sm text-gray-500">({cards.length})</span>
-              </div>
-              <div className="space-y-2">
-                {cards.map(card => (
-                  <div key={card.case_id} className="border rounded-lg p-3">
-                    <div className="font-medium">{card.cliente}</div>
-                    <div className="text-xs text-gray-600">{fmtCpf(card.cpf)} • {card.operador ?? "—"}</div>
-                    <div className="text-sm">
-                      {fmtMoney(card.valor_contratado)} • {card.data_venda ? new Date(card.data_venda).toLocaleDateString() : "s/ data"}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Início etapa: {card.etapa_started_at ? new Date(card.etapa_started_at).toLocaleString() : "—"}
-                    </div>
-                    {canAdvance(card.current_stage) && (
-                      <button
-                        className="mt-2 text-sm px-2 py-1 rounded bg-black text-white"
-                        onClick={() => advance(card)}
-                      >
-                        Avançar
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+          <button
+            onClick={() => setSelectedCase(null)}
+            className="mt-4 bg-blue-500 text-white px-3 py-1 rounded"
+          >
+            Fechar
+          </button>
+        </Modal>
+      )}
     </div>
   );
-}
-
-function labelStage(s: KanbanRow["current_stage"]) {
-  switch (s) {
-    case "CONTRATO_PENDENTE": return "Contrato pendente";
-    case "DESBLOQUEIO": return "Desbloqueio";
-    case "LIBERACAO_VALOR": return "Liberação do valor";
-    case "PAGAMENTO": return "Pagamento";
-    case "CONCLUIDO": return "Concluído";
-    case "CANCELADO": return "Cancelado";
-  }
-}
-
-function canAdvance(s: KanbanRow["current_stage"]) {
-  return s !== "CONCLUIDO" && s !== "CANCELADO";
-}
-
-function fmtMoney(n: number | null) {
-  if (n == null) return "R$ 0,00";
-  try { return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
-  catch { return `R$ ${n}`; }
-}
-function fmtCpf(cpf: string | null) {
-  if (!cpf) return "CPF —";
-  const c = cpf.replace(/\D/g, "").padStart(11, "0");
-  return c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 }
