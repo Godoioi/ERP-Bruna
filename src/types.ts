@@ -6,11 +6,16 @@ export type StatusCol =
   | "CONCLUIDO"
   | "CANCELADO";
 
+export type CardColor = "vermelho" | "verde" | "amarelo" | "azul";
+
 export interface Cliente {
   id: string;
   nome: string;
   cpf: string;
   status: StatusCol;
+  valorPagamento: number;    // novo
+  operador: string;          // novo
+  cardColor?: CardColor;     // novo (cor do card)
   documentos?: string[];
   createdAt: number;
 }

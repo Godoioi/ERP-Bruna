@@ -1,4 +1,4 @@
-import { BoardState, Cliente, StatusCol, statusLabel } from "./types";
+import { BoardState, Cliente, StatusCol, statusLabel, CardColor } from "./types";
 
 const KEY = "erpbrunaops_v1";
 
@@ -17,6 +17,9 @@ const seed: BoardState = {
       nome: "Tânia Priscila Godoi",
       cpf: "14311497997",
       status: "CONTRATO_PENDENTE",
+      valorPagamento: 2500.00,
+      operador: "Bruna",
+      cardColor: "amarelo",
       documentos: [],
       createdAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
     },
@@ -25,6 +28,9 @@ const seed: BoardState = {
       nome: "Cliente Teste",
       cpf: "12345678901",
       status: "LIBERACAO_VALOR",
+      valorPagamento: 1800.50,
+      operador: "João",
+      cardColor: "azul",
       documentos: ["RG.pdf"],
       createdAt: Date.now() - 1000 * 60 * 60 * 24 * 1,
     },
@@ -38,7 +44,16 @@ export function loadBoard(): BoardState {
     return seed;
   }
   try {
-    return JSON.parse(raw) as BoardState;
+    const parsed = JSON.parse(raw) as BoardState;
+    // migração simples: preencher campos novos se faltarem
+    parsed.clientes = parsed.clientes.map(c => ({
+      valorPagamento: 0,
+      operador: "",
+      cardColor: "azul",
+      documentos: [],
+      ...c,
+    }));
+    return parsed;
   } catch {
     localStorage.setItem(KEY, JSON.stringify(seed));
     return seed;
@@ -49,13 +64,16 @@ export function saveBoard(data: BoardState) {
   localStorage.setItem(KEY, JSON.stringify(data));
 }
 
-export function addCliente(nome: string, cpf: string): Cliente {
+export function addCliente(nome: string, cpf: string, valorPagamento: number, operador: string): Cliente {
   const state = loadBoard();
   const novo: Cliente = {
     id: crypto.randomUUID(),
     nome,
     cpf,
     status: "CONTRATO_PENDENTE",
+    valorPagamento,
+    operador,
+    cardColor: "azul",
     documentos: [],
     createdAt: Date.now(),
   };
@@ -87,4 +105,22 @@ export function removerCliente(id: string) {
   const st = loadBoard();
   st.clientes = st.clientes.filter((c) => c.id !== id);
   saveBoard(st);
+}
+
+export function updateCliente(id: string, patch: Partial<Pick<Cliente, "nome"|"cpf"|"valorPagamento"|"operador">>) {
+  const st = loadBoard();
+  const idx = st.clientes.findIndex(c => c.id === id);
+  if (idx >= 0) {
+    st.clientes[idx] = { ...st.clientes[idx], ...patch };
+    saveBoard(st);
+  }
+}
+
+export function setCardColor(id: string, color: CardColor) {
+  const st = loadBoard();
+  const c = st.clientes.find(x => x.id === id);
+  if (c) {
+    c.cardColor = color;
+    saveBoard(st);
+  }
 }
