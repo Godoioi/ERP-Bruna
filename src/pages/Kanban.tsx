@@ -38,8 +38,6 @@ function Card({ id, title, subtitle }: { id: string; title: string; subtitle?: s
 function Column({ col, ids }: { col: StatusCol; ids: string[] }) {
   const { data } = useERP();
   const clients = data.clientes.filter((c) => ids.includes(c.id));
-
-  // marca a coluna como droppable
   const { setNodeRef, isOver } = useDroppable({ id: col });
 
   const colStyle: React.CSSProperties = {
@@ -86,10 +84,8 @@ export default function Kanban() {
     const overId = evt.over?.id ? String(evt.over.id) : undefined;
     if (!overId) return;
     if ((COLS as string[]).includes(overId)) {
-      // soltou na área vazia de uma coluna
       moveCliente(activeId, overId as StatusCol);
     }
-    // Obs.: mover dentro da mesma coluna já é tratado pelo SortableContext (ordenação visual).
   };
 
   const boardStyle: React.CSSProperties = {
