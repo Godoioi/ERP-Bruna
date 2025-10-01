@@ -1,148 +1,110 @@
-import React, { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import Modal from "react-modal";
+import React from "react";
+import { DndContext, DragEndEvent, useDroppable } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useERP } from "../store";
+import { StatusCol, statusLabel } from "../types";
 
-Modal.setAppElement("#root");
+const COLS: StatusCol[] = [
+  "CONTRATO_PENDENTE",
+  "DESBLOQUEIO",
+  "LIBERACAO_VALOR",
+  "PAGAMENTO",
+  "CONCLUIDO",
+  "CANCELADO",
+];
 
-type Case = {
-  id: string;
-  cliente: string;
-  valor_contratado: number;
-  current_stage: string;
-  obs: string | null;
-};
+function Card({ id, title, subtitle }: { id: string; title: string; subtitle?: string }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    boxShadow: "0 2px 6px rgba(0,0,0,.06)",
+    cursor: "grab",
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <div style={{ fontWeight: 600 }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{subtitle}</div>}
+    </div>
+  );
+}
 
-type Stage = "CONTRATO_PENDENTE" | "DESBLOQUEIO" | "LIBERACAO_VALOR" | "PAGAMENTO" | "CONCLUIDO" | "CANCELADO";
+function Column({ col, ids }: { col: StatusCol; ids: string[] }) {
+  const { data } = useERP();
+  const clients = data.clientes.filter((c) => ids.includes(c.id));
 
-const stageLabels: Record<Stage, string> = {
-  CONTRATO_PENDENTE: "Contrato Pendente",
-  DESBLOQUEIO: "Desbloqueio",
-  LIBERACAO_VALOR: "Liberação Valor",
-  PAGAMENTO: "Pagamento",
-  CONCLUIDO: "Concluído",
-  CANCELADO: "Cancelado",
-};
+  // marca a coluna como droppable
+  const { setNodeRef, isOver } = useDroppable({ id: col });
 
-const stageColors: Record<Stage, string> = {
-  CONTRATO_PENDENTE: "bg-yellow-200",
-  DESBLOQUEIO: "bg-blue-200",
-  LIBERACAO_VALOR: "bg-green-200",
-  PAGAMENTO: "bg-purple-200",
-  CONCLUIDO: "bg-green-400",
-  CANCELADO: "bg-red-300",
-};
-
-export default function Kanban() {
-  const [cases, setCases] = useState<Case[]>([]);
-  const [selectedCase, setSelectedCase] = useState<Case | null>(null);
-
-  useEffect(() => {
-    fetchCases();
-  }, []);
-
-  async function fetchCases() {
-    const { data, error } = await supabase
-      .from("v_kanban")
-      .select("case_id, cliente, valor_contratado, current_stage, obs");
-    if (error) console.error(error);
-    else
-      setCases(
-        data.map((c: any) => ({
-          id: c.case_id,
-          cliente: c.cliente,
-          valor_contratado: c.valor_contratado,
-          current_stage: c.current_stage,
-          obs: c.obs,
-        }))
-      );
-  }
-
-  async function updateCaseStage(id: string, newStage: Stage) {
-    const { error } = await supabase
-      .from("cases")
-      .update({ current_stage: newStage, status: newStage })
-      .eq("id", id);
-    if (error) console.error(error);
-    else fetchCases();
-  }
-
-  function onDragEnd(result: any) {
-    if (!result.destination) return;
-    const { source, destination, draggableId } = result;
-    if (source.droppableId !== destination.droppableId) {
-      updateCaseStage(draggableId, destination.droppableId as Stage);
-    }
-  }
+  const colStyle: React.CSSProperties = {
+    background: isOver ? "#eef6ff" : "#f6f7f9",
+    border: "1px solid #eef0f4",
+    borderRadius: 14,
+    padding: 14,
+    minHeight: 420,
+    transition: "background .12s ease",
+  };
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-6">Esteira Operacional</h1>
-      <DragDropContext onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-6 gap-4">
-          {Object.keys(stageLabels).map((stageKey) => (
-            <Droppable droppableId={stageKey} key={stageKey}>
-              {(provided) => (
-                <div
-                  ref={provided.innerRef}
-                  {...provided.droppableProps}
-                  className="bg-gray-100 rounded p-2 min-h-[300px]"
-                >
-                  <h2 className="font-semibold text-sm mb-2">
-                    {stageLabels[stageKey as Stage]}
-                  </h2>
-                  {cases
-                    .filter((c) => c.current_stage === stageKey)
-                    .map((c, index) => (
-                      <Draggable draggableId={c.id} index={index} key={c.id}>
-                        {(provided) => (
-                          <div
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            ref={provided.innerRef}
-                            className={`p-2 mb-2 rounded cursor-pointer ${stageColors[stageKey as Stage]}`}
-                            onClick={() => setSelectedCase(c)}
-                          >
-                            <p className="font-bold">{c.cliente}</p>
-                            <p className="text-xs">R$ {c.valor_contratado}</p>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                  {provided.placeholder}
-                </div>
-              )}
-            </Droppable>
-          ))}
-        </div>
-      </DragDropContext>
-
-      {/* Modal de detalhes */}
-      {selectedCase && (
-        <Modal
-          isOpen={true}
-          onRequestClose={() => setSelectedCase(null)}
-          contentLabel="Detalhes do Cliente"
-          className="bg-white p-4 rounded shadow-lg max-w-lg mx-auto mt-20"
-        >
-          <h2 className="text-xl font-bold mb-2">{selectedCase.cliente}</h2>
-          <p>Valor contratado: R$ {selectedCase.valor_contratado}</p>
-          <p>Observações: {selectedCase.obs || "Nenhuma"}</p>
-
-          <h3 className="mt-4 font-semibold">Documentos</h3>
-          <ul>
-            {/* Aqui listamos os documentos do cliente */}
-            <li>📄 Exemplo de documento anexado</li>
-          </ul>
-
-          <button
-            onClick={() => setSelectedCase(null)}
-            className="mt-4 bg-blue-500 text-white px-3 py-1 rounded"
-          >
-            Fechar
-          </button>
-        </Modal>
-      )}
+    <div ref={setNodeRef} style={colStyle}>
+      <div style={{ fontWeight: 700, marginBottom: 12 }}>{statusLabel[col]}</div>
+      <SortableContext items={clients.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+        {clients.map((c) => (
+          <Card
+            key={c.id}
+            id={c.id}
+            title={c.nome}
+            subtitle={`CPF: ${c.cpf}${c.documentos?.length ? ` • ${c.documentos.length} doc(s)` : ""}`}
+          />
+        ))}
+      </SortableContext>
     </div>
+  );
+}
+
+export default function Kanban() {
+  const { data, moveCliente } = useERP();
+
+  const idsByCol: Record<StatusCol, string[]> = {
+    CONTRATO_PENDENTE: [],
+    DESBLOQUEIO: [],
+    LIBERACAO_VALOR: [],
+    PAGAMENTO: [],
+    CONCLUIDO: [],
+    CANCELADO: [],
+  };
+  data.clientes.forEach((c) => idsByCol[c.status].push(c.id));
+
+  const handleDragEnd = (evt: DragEndEvent) => {
+    const activeId = String(evt.active.id);
+    const overId = evt.over?.id ? String(evt.over.id) : undefined;
+    if (!overId) return;
+    if ((COLS as string[]).includes(overId)) {
+      // soltou na área vazia de uma coluna
+      moveCliente(activeId, overId as StatusCol);
+    }
+    // Obs.: mover dentro da mesma coluna já é tratado pelo SortableContext (ordenação visual).
+  };
+
+  const boardStyle: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "repeat(6, minmax(220px, 1fr))",
+    gap: 16,
+  };
+
+  return (
+    <DndContext onDragEnd={handleDragEnd}>
+      <div style={boardStyle}>
+        {COLS.map((col) => (
+          <Column key={col} col={col} ids={idsByCol[col]} />
+        ))}
+      </div>
+    </DndContext>
   );
 }
