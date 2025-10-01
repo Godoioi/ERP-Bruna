@@ -1,109 +1,114 @@
-import React, { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-
-type Customer = {
-  id: string;
-  nome: string;
-  cpf: string;
-};
+import React, { useRef, useState } from "react";
+import { useERP } from "../store";
 
 export default function Clientes() {
-  const [clientes, setClientes] = useState<Customer[]>([]);
+  const { data, addCliente, anexar, remover } = useERP();
   const [nome, setNome] = useState("");
   const [cpf, setCpf] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  useEffect(() => {
-    fetchClientes();
-  }, []);
+  const onAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nome.trim() || !cpf.trim()) return;
+    addCliente(nome.trim(), cpf.replace(/\D/g, ""));
+    setNome("");
+    setCpf("");
+  };
 
-  async function fetchClientes() {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, nome, cpf")
-      .order("created_at", { ascending: false });
-    if (error) console.error(error);
-    else setClientes(data);
-  }
-
-  async function addCliente() {
-    const { error } = await supabase
-      .from("customers")
-      .insert([{ nome, cpf }]);
-    if (error) alert("Erro: " + error.message);
-    else {
-      setNome("");
-      setCpf("");
-      fetchClientes();
-    }
-  }
-
-  async function uploadFile(customerId: string) {
-    if (!file) return;
-    const filePath = `${customerId}/${file.name}`;
-    const { error } = await supabase.storage
-      .from("cliente_docs")
-      .upload(filePath, file, { upsert: true });
-    if (error) {
-      alert("Erro no upload: " + error.message);
-    } else {
-      await supabase.from("customer_files").insert([
-        {
-          customer_id: customerId,
-          path: filePath,
-          original_name: file.name,
-        },
-      ]);
-      setFile(null);
-      alert("Upload concluído!");
-    }
-  }
+  const onUpload = (id: string) => {
+    const input = fileRefs.current[id];
+    if (!input || !input.files || input.files.length === 0) return;
+    anexar(id, input.files[0].name);
+    input.value = "";
+  };
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">Clientes</h1>
+    <div style={{ padding: 24 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 16 }}>Clientes</h1>
 
-      <div className="mb-4 space-x-2">
+      <form onSubmit={onAdd} style={{ display: "flex", gap: 12, marginBottom: 20 }}>
         <input
+          placeholder="Nome"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
-          placeholder="Nome"
-          className="border p-1"
+          style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb", minWidth: 260 }}
         />
         <input
+          placeholder="CPF"
           value={cpf}
           onChange={(e) => setCpf(e.target.value)}
-          placeholder="CPF"
-          className="border p-1"
+          style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb", minWidth: 200 }}
         />
-        <button
-          onClick={addCliente}
-          className="bg-green-500 text-white px-3 py-1 rounded"
-        >
-          Adicionar
-        </button>
+        <button type="submit" style={btnPrimary}>Adicionar</button>
+      </form>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {data.clientes
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .map((c) => (
+            <div key={c.id} style={cardRow}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{c.nome}</div>
+                <div style={{ fontSize: 12, color: "#6b7280" }}>CPF: {c.cpf}</div>
+                {c.documentos?.length ? (
+                  <div style={{ fontSize: 12, color: "#374151", marginTop: 6 }}>
+                    Documentos: {c.documentos.join(", ")}
+                  </div>
+                ) : null}
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="file"
+                  ref={(el) => (fileRefs.current[c.id] = el)}
+                  style={{ maxWidth: 220 }}
+                />
+                <button type="button" style={btnSecondary} onClick={() => onUpload(c.id)}>
+                  Enviar Documento
+                </button>
+                <button type="button" style={btnDanger} onClick={() => remover(c.id)}>
+                  Remover
+                </button>
+              </div>
+            </div>
+          ))}
       </div>
-
-      <ul>
-        {clientes.map((c) => (
-          <li key={c.id} className="mb-2 border p-2 rounded">
-            <p className="font-bold">{c.nome}</p>
-            <p className="text-xs">CPF: {c.cpf}</p>
-
-            <input
-              type="file"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="mt-2"
-            />
-            <button
-              onClick={() => uploadFile(c.id)}
-              className="ml-2 bg-blue-500 text-white px-2 py-1 rounded"
-            >
-              Enviar Documento
-            </button>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
+
+const cardRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  border: "1px solid #eef0f4",
+  borderRadius: 12,
+  padding: 12,
+  background: "#fff",
+};
+const btnPrimary: React.CSSProperties = {
+  background: "#22c55e",
+  color: "white",
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 14px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+const btnSecondary: React.CSSProperties = {
+  background: "#3b82f6",
+  color: "white",
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 12px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+const btnDanger: React.CSSProperties = {
+  background: "#ef4444",
+  color: "white",
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 12px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
