@@ -1,62 +1,53 @@
-import { useState } from "react";
-import AuthGate from "@/components/AuthGate";
-import Clientes from "@/pages/Clientes";
-import Kanban from "@/pages/Kanban";
-import Agenda from "@/pages/Agenda";
-import { supabase } from "@/integrations/supabase/client";
-
-type TabKey = "kanban" | "clientes" | "agenda";
+import React from "react";
+import { BrowserRouter, Routes, Route, NavLink, Link } from "react-router-dom";
+import EsteiraOperacional from "./pages/EsteiraOperacional";
+import Clientes from "./pages/Clientes";
+import Agenda from "./pages/Agenda";
 
 export default function App() {
-  const [tab, setTab] = useState<TabKey>("kanban");
+  return (
+    <BrowserRouter>
+      <div>
+        <Topbar />
+        <Routes>
+          <Route path="/" element={<EsteiraOperacional />} />
+          <Route path="/clientes" element={<Clientes />} />
+          <Route path="/agenda" element={<Agenda />} />
+        </Routes>
+      </div>
+    </BrowserRouter>
+  );
+}
+
+function Topbar() {
+  const linkStyle = ({ isActive }: { isActive: boolean }) => ({
+    padding: "6px 12px",
+    borderRadius: 10,
+    fontWeight: 700,
+    background: isActive ? "#111827" : "#eef0f4",
+    color: isActive ? "#fff" : "#111827",
+    textDecoration: "none",
+  });
 
   return (
-    <AuthGate>
-      <div className="min-h-screen bg-gray-50">
-        {/* Topbar simples */}
-        <header className="sticky top-0 bg-white border-b">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <span className="text-lg font-semibold">ERP Bruna</span>
-              <nav className="flex items-center gap-2">
-                <button
-                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='kanban' ? 'bg-black text-white' : 'bg-gray-100'}`}
-                  onClick={() => setTab("kanban")}
-                >
-                  Esteira Operacional
-                </button>
-                <button
-                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='clientes' ? 'bg-black text-white' : 'bg-gray-100'}`}
-                  onClick={() => setTab("clientes")}
-                >
-                  Clientes
-                </button>
-                <button
-                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='agenda' ? 'bg-black text-white' : 'bg-gray-100'}`}
-                  onClick={() => setTab("agenda")}
-                >
-                  Agenda
-                </button>
-              </nav>
-            </div>
-
-            <button
-              onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
-              className="px-3 py-1.5 rounded-lg text-sm bg-gray-100"
-              title="Sair"
-            >
-              Sair
-            </button>
-          </div>
-        </header>
-
-        {/* Conteúdo */}
-        <main className="max-w-6xl mx-auto px-4 py-6">
-          {tab === "kanban" && <Kanban />}
-          {tab === "clientes" && <Clientes />}
-          {tab === "agenda" && <Agenda />}
-        </main>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 16, borderBottom: "1px solid #f0f2f6" }}>
+      <Link to="/" style={{ fontWeight: 900, fontSize: 18, textDecoration: "none", color: "#111827", marginRight: 8 }}>
+        ERP Bruna
+      </Link>
+      <NavLink to="/" style={linkStyle} end>
+        Esteira Operacional
+      </NavLink>
+      <NavLink to="/clientes" style={linkStyle}>
+        Clientes
+      </NavLink>
+      <NavLink to="/agenda" style={linkStyle}>
+        Agenda
+      </NavLink>
+      <div style={{ marginLeft: "auto" }}>
+        <button style={{ background: "#f8fafc", color: "#2563eb", border: "none", borderRadius: 10, padding: "10px 12px", fontWeight: 700 }}>
+          Sair
+        </button>
       </div>
-    </AuthGate>
+    </div>
   );
 }
