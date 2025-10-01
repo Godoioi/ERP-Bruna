@@ -1,42 +1,62 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
+import { useState } from "react";
+import AuthGate from "@/components/AuthGate";
+import Clientes from "@/pages/Clientes";
+import Kanban from "@/pages/Kanban";
+import Agenda from "@/pages/Agenda";
+import { supabase } from "@/integrations/supabase/client";
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
+type TabKey = "kanban" | "clientes" | "agenda";
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
+export default function App() {
+  const [tab, setTab] = useState<TabKey>("kanban");
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
+  return (
+    <AuthGate>
+      <div className="min-h-screen bg-gray-50">
+        {/* Topbar simples */}
+        <header className="sticky top-0 bg-white border-b">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-semibold">ERP Bruna</span>
+              <nav className="flex items-center gap-2">
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='kanban' ? 'bg-black text-white' : 'bg-gray-100'}`}
+                  onClick={() => setTab("kanban")}
+                >
+                  Esteira Operacional
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='clientes' ? 'bg-black text-white' : 'bg-gray-100'}`}
+                  onClick={() => setTab("clientes")}
+                >
+                  Clientes
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='agenda' ? 'bg-black text-white' : 'bg-gray-100'}`}
+                  onClick={() => setTab("agenda")}
+                >
+                  Agenda
+                </button>
+              </nav>
+            </div>
 
-.card {
-  padding: 2em;
-}
+            <button
+              onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
+              className="px-3 py-1.5 rounded-lg text-sm bg-gray-100"
+              title="Sair"
+            >
+              Sair
+            </button>
+          </div>
+        </header>
 
-.read-the-docs {
-  color: #888;
+        {/* Conteúdo */}
+        <main className="max-w-6xl mx-auto px-4 py-6">
+          {tab === "kanban" && <Kanban />}
+          {tab === "clientes" && <Clientes />}
+          {tab === "agenda" && <Agenda />}
+        </main>
+      </div>
+    </AuthGate>
+  );
 }

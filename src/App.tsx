@@ -1,46 +1,62 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/AppSidebar";
-import Dashboard from "./pages/Dashboard";
-import Kanban from "./pages/Kanban";
-import Clientes from "./pages/Clientes";
-import Pagamentos from "./pages/Pagamentos";
-import NotFound from "./pages/NotFound";
+import { useState } from "react";
+import AuthGate from "@/components/AuthGate";
+import Clientes from "@/pages/Clientes";
+import Kanban from "@/pages/Kanban";
+import Agenda from "@/pages/Agenda";
+import { supabase } from "@/integrations/supabase/client";
 
-const queryClient = new QueryClient();
+type TabKey = "kanban" | "clientes" | "agenda";
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <SidebarProvider>
-          <div className="flex min-h-screen w-full">
-            <AppSidebar />
-            <div className="flex-1 flex flex-col">
-              <header className="h-14 border-b border-border bg-background flex items-center px-4 sticky top-0 z-10">
-                <SidebarTrigger />
-              </header>
-              <main className="flex-1 p-6 bg-background">
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/kanban" element={<Kanban />} />
-                  <Route path="/clientes" element={<Clientes />} />
-                  <Route path="/pagamentos" element={<Pagamentos />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </main>
+export default function App() {
+  const [tab, setTab] = useState<TabKey>("kanban");
+
+  return (
+    <AuthGate>
+      <div className="min-h-screen bg-gray-50">
+        {/* Topbar simples */}
+        <header className="sticky top-0 bg-white border-b">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-semibold">ERP Bruna</span>
+              <nav className="flex items-center gap-2">
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='kanban' ? 'bg-black text-white' : 'bg-gray-100'}`}
+                  onClick={() => setTab("kanban")}
+                >
+                  Esteira Operacional
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='clientes' ? 'bg-black text-white' : 'bg-gray-100'}`}
+                  onClick={() => setTab("clientes")}
+                >
+                  Clientes
+                </button>
+                <button
+                  className={`px-3 py-1.5 rounded-lg text-sm ${tab==='agenda' ? 'bg-black text-white' : 'bg-gray-100'}`}
+                  onClick={() => setTab("agenda")}
+                >
+                  Agenda
+                </button>
+              </nav>
             </div>
-          </div>
-        </SidebarProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
 
-export default App;
+            <button
+              onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
+              className="px-3 py-1.5 rounded-lg text-sm bg-gray-100"
+              title="Sair"
+            >
+              Sair
+            </button>
+          </div>
+        </header>
+
+        {/* Conteúdo */}
+        <main className="max-w-6xl mx-auto px-4 py-6">
+          {tab === "kanban" && <Kanban />}
+          {tab === "clientes" && <Clientes />}
+          {tab === "agenda" && <Agenda />}
+        </main>
+      </div>
+    </AuthGate>
+  );
+}

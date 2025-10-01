@@ -1,294 +1,210 @@
-// @ts-nocheck
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Plus, Search } from "lucide-react";
-import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+
+type Customer = { id: string; nome: string; cpf: string | null; email?: string | null; telefone?: string | null };
+type Operator = { id: string; nome: string; email: string | null };
 
 export default function Clientes() {
-  const [open, setOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const queryClient = useQueryClient();
+  const [clientes, setClientes] = useState<Customer[]>([]);
+  const [ops, setOps] = useState<Operator[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState({
-    customer_nome: "",
-    customer_cpf: "",
-    customer_telefone: "",
-    customer_email: "",
-    customer_uf: "",
-    valor_contratado: "",
-    origem: "",
-    operator_id: "",
-    obs: "",
-  });
+  // form novo cliente + caso
+  const [nome, setNome] = useState("");
+  const [cpf, setCpf] = useState("");
+  const [telefone, setTelefone] = useState("");
+  const [email, setEmail] = useState("");
+  const [valor, setValor] = useState<number | "">("");
+  const [dataVenda, setDataVenda] = useState("");
+  const [origem, setOrigem] = useState("WhatsApp");
+  const [operador, setOperador] = useState<string>("");
 
-  const { data: operators } = useQuery({
-    queryKey: ["operators"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("operators" as "operators").select("*");
-      if (error) throw error;
-      return data as any[];
-    },
-  });
+  // follow-up
+  const [fuDate, setFuDate] = useState(""); // datetime-local
+  const [fuNote, setFuNote] = useState("");
+  const followCustomerId = useRef<string | null>(null);
 
-  const { data: customers, isLoading } = useQuery({
-    queryKey: ["customers", searchTerm],
-    queryFn: async () => {
-      let query = supabase.from("customers" as "customers").select("*");
-      
-      if (searchTerm) {
-        query = query.or(`nome.ilike.%${searchTerm}%,cpf.ilike.%${searchTerm}%`);
-      }
-      
-      const { data, error } = await query.order("nome");
-      if (error) throw error;
-      return data as any[];
-    },
-  });
+  // upload
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const uploadCustomerId = useRef<string | null>(null);
 
-  const createCaseMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      const { error } = await supabase.rpc("create_case_with_stage" as "create_case_with_stage", {
-        p_customer_nome: data.customer_nome,
-        p_customer_cpf: data.customer_cpf,
-        p_customer_telefone: data.customer_telefone || null,
-        p_customer_email: data.customer_email || null,
-        p_customer_uf: data.customer_uf || null,
-        p_operator_id: data.operator_id,
-        p_valor_contratado: parseFloat(data.valor_contratado),
-        p_origem: data.origem || null,
-        p_obs: data.obs || null,
-      } as any);
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const [{ data: cs, error: e1 }, { data: os, error: e2 }] = await Promise.all([
+        supabase.from("customers").select("id,nome,cpf,email,telefone").order("nome"),
+        supabase.from("operators").select("id,nome,email").order("nome"),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+      setClientes(cs || []);
+      setOps(os || []);
+      if (!operador && os?.length) setOperador(os[0].id);
+    } catch (e: any) {
+      setErr(e.message || String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      queryClient.invalidateQueries({ queryKey: ["kanban"] });
-      toast.success("Cliente e caso criados com sucesso!");
-      setOpen(false);
-      setFormData({
-        customer_nome: "",
-        customer_cpf: "",
-        customer_telefone: "",
-        customer_email: "",
-        customer_uf: "",
-        valor_contratado: "",
-        origem: "",
-        operator_id: "",
-        obs: "",
-      });
-    },
-    onError: (error) => {
-      toast.error(`Erro ao criar caso: ${error.message}`);
-    },
-  });
+  useEffect(() => { load(); }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    createCaseMutation.mutate(formData);
-  };
+    setErr(null);
+    try {
+      // cria cliente
+      const { data: cIns, error: cErr } = await supabase
+        .from("customers")
+        .insert({ nome, cpf: cpf.replace(/\D/g, "").padEnd(11, "0"), telefone, email })
+        .select("id")
+        .single();
+      if (cErr) throw cErr;
+      const customerId = cIns!.id;
 
+      // pega meu operator_id (quem está criando)
+      const { data: user } = await supabase.auth.getUser();
+      const myEmail = user?.user?.email || "";
+      const { data: me } = await supabase.from("operators").select("id").eq("email", myEmail).maybeSingle();
+      const createdBy = me?.id ?? null;
+
+      // cria caso via RPC
+      const { data: caseIdRows, error: rErr } = await supabase.rpc("create_case_with_stage", {
+        p_customer_id: customerId,
+        p_operator_id: operador || null,
+        p_valor_contratado: valor === "" ? null : Number(valor),
+        p_data_venda: dataVenda || null,
+        p_origem: origem,
+        p_obs: null,
+      });
+      if (rErr) throw rErr;
+      const caseId = caseIdRows as unknown as string;
+
+      // preenche autoria e vendedor
+      if (createdBy || operador) {
+        await supabase.from("cases").update({
+          created_by_operator_id: createdBy,
+          sold_by_operator_id: operador || null,
+        }).eq("id", caseId);
+      }
+
+      // reload
+      setNome(""); setCpf(""); setTelefone(""); setEmail("");
+      setValor(""); setDataVenda(""); setOrigem("WhatsApp");
+      load();
+      alert("Cliente + caso criados!");
+    } catch (e: any) {
+      setErr(e.message || String(e));
+    }
+  }
+
+  async function openUpload(customerId: string) {
+    uploadCustomerId.current = customerId;
+    fileInput.current?.click();
+  }
+  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !uploadCustomerId.current) return;
+    const path = `${uploadCustomerId.current}/${file.name}`;
+    const { error: upErr } = await supabase.storage.from("cliente_docs").upload(path, file, { upsert: true });
+    if (upErr) { alert(upErr.message); return; }
+    const { data: user } = await supabase.auth.getUser();
+    const email = user?.user?.email || "";
+    const { data: me } = await supabase.from("operators").select("id").eq("email", email).maybeSingle();
+    await supabase.from("customer_files").insert({
+      customer_id: uploadCustomerId.current,
+      uploaded_by_operator_id: me?.id ?? null,
+      path,
+      original_name: file.name,
+    });
+    alert("Arquivo anexado!");
+    e.target.value = "";
+  }
+
+  async function openFollowUp(customerId: string) {
+    followCustomerId.current = customerId;
+    const defaultDate = new Date();
+    defaultDate.setDate(defaultDate.getDate() + 1);
+    setFuDate(defaultDate.toISOString().slice(0,16)); // yyyy-MM-ddTHH:mm
+    setFuNote("");
+    (document.getElementById("fu-modal") as HTMLDialogElement)?.showModal();
+  }
+  async function saveFollowUp() {
+    if (!followCustomerId.current || !fuDate) return;
+    const iso = new Date(fuDate).toISOString();
+    const { error } = await supabase.rpc("create_follow_up_for_me", {
+      p_customer_id: followCustomerId.current,
+      p_when: iso,
+      p_note: fuNote || null,
+    });
+    if (error) { alert(error.message); return; }
+    (document.getElementById("fu-modal") as HTMLDialogElement)?.close();
+    alert("Lembrete criado!");
+  }
+
+  if (loading) return <div className="p-4">Carregando clientes…</div>;
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Clientes</h1>
-          <p className="text-muted-foreground">Gerencie seus clientes e casos</p>
+    <div className="p-4 space-y-6">
+      <h1 className="text-xl font-semibold">Clientes</h1>
+
+      {err && <div className="text-red-600">{err}</div>}
+
+      {/* Form novo cliente + caso */}
+      <form onSubmit={handleCreate} className="grid md:grid-cols-4 gap-3 bg-white border rounded-xl p-4">
+        <input className="border rounded p-2" placeholder="Nome" value={nome} onChange={e=>setNome(e.target.value)} required />
+        <input className="border rounded p-2" placeholder="CPF" value={cpf} onChange={e=>setCpf(e.target.value)} required />
+        <input className="border rounded p-2" placeholder="Telefone" value={telefone} onChange={e=>setTelefone(e.target.value)} />
+        <input className="border rounded p-2" placeholder="E-mail" value={email} onChange={e=>setEmail(e.target.value)} />
+
+        <input className="border rounded p-2" type="number" placeholder="Valor contratado" value={valor} onChange={e=>setValor(e.target.value===""? "": Number(e.target.value))} />
+        <input className="border rounded p-2" type="date" value={dataVenda} onChange={e=>setDataVenda(e.target.value)} />
+        <input className="border rounded p-2" placeholder="Origem" value={origem} onChange={e=>setOrigem(e.target.value)} />
+
+        <select className="border rounded p-2" value={operador} onChange={e=>setOperador(e.target.value)} required>
+          <option value="">Selecione o operador</option>
+          {ops.map(o => <option key={o.id} value={o.id}>{o.nome} ({o.email})</option>)}
+        </select>
+
+        <button className="rounded bg-black text-white py-2 col-span-full">Salvar cliente + caso</button>
+      </form>
+
+      {/* Lista de clientes */}
+      <ul className="space-y-2">
+        {clientes.map(c => (
+          <li key={c.id} className="border rounded-xl p-3 bg-white flex items-center justify-between">
+            <div>
+              <div className="font-medium">{c.nome}</div>
+              <div className="text-sm text-gray-600">{c.cpf}</div>
+            </div>
+            <div className="flex gap-2">
+              <button className="px-3 py-1 rounded bg-indigo-600 text-white" onClick={() => openFollowUp(c.id)}>
+                Lembrar depois
+              </button>
+              <button className="px-3 py-1 rounded bg-gray-800 text-white" onClick={() => openUpload(c.id)}>
+                Anexar doc
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {/* input hidden para upload */}
+      <input ref={fileInput} type="file" className="hidden" onChange={onFileChange} />
+
+      {/* modal follow-up */}
+      <dialog id="fu-modal" className="rounded-xl">
+        <div className="p-4 space-y-3 min-w-[320px]">
+          <h3 className="font-semibold">Agendar lembrete</h3>
+          <input type="datetime-local" className="border rounded p-2 w-full" value={fuDate} onChange={e=>setFuDate(e.target.value)} />
+          <input type="text" className="border rounded p-2 w-full" placeholder="Anotação (opcional)" value={fuNote} onChange={e=>setFuNote(e.target.value)} />
+          <div className="flex justify-end gap-2">
+            <button className="px-3 py-1 rounded border" onClick={() => (document.getElementById("fu-modal") as HTMLDialogElement)?.close()}>Cancelar</button>
+            <button className="px-3 py-1 rounded bg-black text-white" onClick={saveFollowUp}>Salvar</button>
+          </div>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Novo Caso
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Criar Novo Cliente e Caso</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="customer_nome">Nome do Cliente *</Label>
-                  <Input
-                    id="customer_nome"
-                    value={formData.customer_nome}
-                    onChange={(e) => setFormData({ ...formData, customer_nome: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="customer_cpf">CPF *</Label>
-                  <Input
-                    id="customer_cpf"
-                    value={formData.customer_cpf}
-                    onChange={(e) => setFormData({ ...formData, customer_cpf: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="customer_telefone">Telefone</Label>
-                  <Input
-                    id="customer_telefone"
-                    value={formData.customer_telefone}
-                    onChange={(e) => setFormData({ ...formData, customer_telefone: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="customer_email">E-mail</Label>
-                  <Input
-                    id="customer_email"
-                    type="email"
-                    value={formData.customer_email}
-                    onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="customer_uf">UF</Label>
-                  <Input
-                    id="customer_uf"
-                    maxLength={2}
-                    value={formData.customer_uf}
-                    onChange={(e) => setFormData({ ...formData, customer_uf: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="valor_contratado">Valor Contratado *</Label>
-                  <Input
-                    id="valor_contratado"
-                    type="number"
-                    step="0.01"
-                    value={formData.valor_contratado}
-                    onChange={(e) => setFormData({ ...formData, valor_contratado: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="operator_id">Operador Responsável *</Label>
-                  <Select
-                    value={formData.operator_id}
-                    onValueChange={(value) => setFormData({ ...formData, operator_id: value })}
-                    required
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um operador" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {operators?.map((op) => (
-                        <SelectItem key={op.id} value={op.id}>
-                          {op.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="origem">Origem</Label>
-                  <Input
-                    id="origem"
-                    value={formData.origem}
-                    onChange={(e) => setFormData({ ...formData, origem: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="obs">Observações</Label>
-                <Textarea
-                  id="obs"
-                  value={formData.obs}
-                  onChange={(e) => setFormData({ ...formData, obs: e.target.value })}
-                  rows={3}
-                />
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={createCaseMutation.isPending}>
-                  {createCaseMutation.isPending ? "Criando..." : "Criar Caso"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por nome ou CPF..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
-        />
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {isLoading ? (
-          <p className="text-muted-foreground">Carregando...</p>
-        ) : customers?.length === 0 ? (
-          <p className="text-muted-foreground">Nenhum cliente encontrado</p>
-        ) : (
-          customers?.map((customer) => (
-            <Card key={customer.id} className="shadow-card hover-scale">
-              <CardHeader>
-                <CardTitle className="text-lg">{customer.nome}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <p>
-                  <span className="font-medium">CPF:</span> {customer.cpf}
-                </p>
-                {customer.telefone && (
-                  <p>
-                    <span className="font-medium">Telefone:</span> {customer.telefone}
-                  </p>
-                )}
-                {customer.email && (
-                  <p>
-                    <span className="font-medium">E-mail:</span> {customer.email}
-                  </p>
-                )}
-                {customer.uf && (
-                  <p>
-                    <span className="font-medium">UF:</span> {customer.uf}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
+      </dialog>
     </div>
   );
 }

@@ -1,155 +1,158 @@
-// @ts-nocheck
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Calendar, User, DollarSign } from "lucide-react";
-import { toast } from "sonner";
-import { Skeleton } from "@/components/ui/skeleton";
 
-const stages = [
-  { key: "CONTRATO_PENDENTE", label: "Contrato Pendente" },
-  { key: "DESBLOQUEIO", label: "Desbloqueio" },
-  { key: "LIBERACAO_VALOR", label: "Liberação do Valor" },
-  { key: "PAGAMENTO", label: "Pagamento" },
+type KanbanRow = {
+  case_id: string;
+  current_stage: "CONTRATO_PENDENTE" | "DESBLOQUEIO" | "LIBERACAO_VALOR" | "PAGAMENTO" | "CONCLUIDO" | "CANCELADO";
+  status: string;
+  operator_id: string | null;
+  operador: string | null;
+  customer_id: string;
+  cliente: string;
+  cpf: string | null;
+  valor_contratado: number | null;
+  data_venda: string | null;
+  created_at: string;
+  etapa_started_at: string | null;
+  etapa_sla_due_at: string | null;
+  sla_days: number | null;
+};
+
+const STAGES: KanbanRow["current_stage"][] = [
+  "CONTRATO_PENDENTE",
+  "DESBLOQUEIO",
+  "LIBERACAO_VALOR",
+  "PAGAMENTO",
+  "CONCLUIDO",
+  "CANCELADO",
 ];
 
+function nextStage(s: KanbanRow["current_stage"]): KanbanRow["current_stage"] {
+  if (s === "CONTRATO_PENDENTE") return "DESBLOQUEIO";
+  if (s === "DESBLOQUEIO") return "LIBERACAO_VALOR";
+  if (s === "LIBERACAO_VALOR") return "PAGAMENTO";
+  if (s === "PAGAMENTO") return "CONCLUIDO";
+  return s; // CONCLUIDO/CANCELADO não avança
+}
+
 export default function Kanban() {
-  const queryClient = useQueryClient();
+  const [rows, setRows] = useState<KanbanRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  const { data: kanbanData, isLoading } = useQuery({
-    queryKey: ["kanban"],
-    queryFn: async () => {
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
       const { data, error } = await supabase
-        .from("v_kanban" as "v_kanban")
+        .from("v_kanban")
         .select("*")
-        .order("data_entrada_etapa", { ascending: false });
-      
+        .order("created_at", { ascending: false })
+        .limit(500);
       if (error) throw error;
-      return data as any[];
-    },
-  });
-
-  const advanceStageMutation = useMutation({
-    mutationFn: async ({ caseId, notes }: { caseId: string; notes?: string }) => {
-      const { data, error } = await supabase.rpc("advance_case_stage" as "advance_case_stage", {
-        p_case_id: caseId,
-        p_actor_operator_id: null,
-        p_notes: notes || null,
-      } as any);
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kanban"] });
-      toast.success("Caso avançado para próxima etapa!");
-    },
-    onError: (error) => {
-      toast.error(`Erro ao avançar caso: ${error.message}`);
-    },
-  });
-
-  const handleAdvance = (caseId: string) => {
-    advanceStageMutation.mutate({ caseId });
-  };
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Kanban</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {stages.map((stage) => (
-            <div key={stage.key} className="space-y-4">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-32 w-full" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+      setRows((data as KanbanRow[]) || []);
+    } catch (e: any) {
+      setErr(e.message || String(e));
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const casesByStage = stages.reduce((acc, stage) => {
-    acc[stage.key] = kanbanData?.filter((c) => c.current_stage === stage.key) || [];
-    return acc;
-  }, {} as Record<string, any[]>);
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function advance(c: KanbanRow) {
+    const nxt = nextStage(c.current_stage);
+    if (nxt === c.current_stage) return;
+    const { error } = await supabase.rpc("advance_case_stage", {
+      p_case_id: c.case_id,
+      p_next_stage: nxt,
+      p_actor: c.operator_id, // quem move: operador atual (ou null)
+    });
+    if (error) {
+      alert(error.message);
+    } else {
+      load();
+    }
+  }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-3xl font-bold">Kanban</h1>
-        <p className="text-muted-foreground">Pipeline de casos</p>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Esteira Operacional</h1>
+        <button
+          className="px-3 py-1.5 rounded-lg border"
+          onClick={load}
+        >
+          Atualizar
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stages.map((stage) => (
-          <div key={stage.key} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-lg">{stage.label}</h2>
-              <Badge variant="secondary">{casesByStage[stage.key].length}</Badge>
-            </div>
+      {err && <div className="text-red-600">Erro: {err}</div>}
+      {loading && <div>Carregando cartões…</div>}
+      {!loading && !rows.length && !err && <div>Sem cards no momento.</div>}
 
-            <div className="space-y-3">
-              {casesByStage[stage.key].map((caseItem) => (
-                <Card key={caseItem.case_id} className="shadow-card hover-scale">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">{caseItem.customer_nome}</CardTitle>
-                    <p className="text-xs text-muted-foreground">CPF: {caseItem.customer_cpf}</p>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {new Intl.NumberFormat("pt-BR", {
-                            style: "currency",
-                            currency: "BRL",
-                          }).format(caseItem.valor_contratado)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <span>{caseItem.operator_nome}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        <span>
-                          {new Date(caseItem.data_entrada_etapa).toLocaleDateString("pt-BR")}
-                        </span>
-                      </div>
-                      {caseItem.prazo_sla && (
-                        <div className="text-xs">
-                          <span className="font-medium">SLA: </span>
-                          {new Date(caseItem.prazo_sla).toLocaleDateString("pt-BR")}
-                        </div>
-                      )}
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {STAGES.map((stage) => {
+          const cards = rows.filter(r => r.current_stage === stage);
+          return (
+            <div key={stage} className="bg-white border rounded-xl p-3">
+              <div className="font-semibold mb-2">
+                {labelStage(stage)} <span className="text-sm text-gray-500">({cards.length})</span>
+              </div>
+              <div className="space-y-2">
+                {cards.map(card => (
+                  <div key={card.case_id} className="border rounded-lg p-3">
+                    <div className="font-medium">{card.cliente}</div>
+                    <div className="text-xs text-gray-600">{fmtCpf(card.cpf)} • {card.operador ?? "—"}</div>
+                    <div className="text-sm">
+                      {fmtMoney(card.valor_contratado)} • {card.data_venda ? new Date(card.data_venda).toLocaleDateString() : "s/ data"}
                     </div>
-
-                    {stage.key !== "PAGAMENTO" && (
-                      <Button
-                        onClick={() => handleAdvance(caseItem.case_id)}
-                        disabled={advanceStageMutation.isPending}
-                        size="sm"
-                        className="w-full"
+                    <div className="text-xs text-gray-500 mt-1">
+                      Início etapa: {card.etapa_started_at ? new Date(card.etapa_started_at).toLocaleString() : "—"}
+                    </div>
+                    {canAdvance(card.current_stage) && (
+                      <button
+                        className="mt-2 text-sm px-2 py-1 rounded bg-black text-white"
+                        onClick={() => advance(card)}
                       >
-                        Avançar <ArrowRight className="ml-2 h-4 w-4" />
-                      </Button>
+                        Avançar
+                      </button>
                     )}
-                  </CardContent>
-                </Card>
-              ))}
-
-              {casesByStage[stage.key].length === 0 && (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  Nenhum caso nesta etapa
-                </div>
-              )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
+}
+
+function labelStage(s: KanbanRow["current_stage"]) {
+  switch (s) {
+    case "CONTRATO_PENDENTE": return "Contrato pendente";
+    case "DESBLOQUEIO": return "Desbloqueio";
+    case "LIBERACAO_VALOR": return "Liberação do valor";
+    case "PAGAMENTO": return "Pagamento";
+    case "CONCLUIDO": return "Concluído";
+    case "CANCELADO": return "Cancelado";
+  }
+}
+
+function canAdvance(s: KanbanRow["current_stage"]) {
+  return s !== "CONCLUIDO" && s !== "CANCELADO";
+}
+
+function fmtMoney(n: number | null) {
+  if (n == null) return "R$ 0,00";
+  try { return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+  catch { return `R$ ${n}`; }
+}
+function fmtCpf(cpf: string | null) {
+  if (!cpf) return "CPF —";
+  const c = cpf.replace(/\D/g, "").padStart(11, "0");
+  return c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
 }
