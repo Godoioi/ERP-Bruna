@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { supabase } from "../client";
+import { supabase } from "@/integrations/supabase/client";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import Modal from "react-modal";
 
